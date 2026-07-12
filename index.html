@@ -45,6 +45,12 @@
   }
   .qnum { color: var(--muted); font-size: 0.8rem; margin-bottom: 8px; }
   .qtext { font-size: 1.05rem; line-height: 1.5; margin-bottom: 18px; }
+  .code-block {
+    display: block; margin-top: 10px; padding: 12px 14px; border-radius: 10px;
+    background: #0b1220; border: 1px solid #334155; font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+    font-size: 0.85rem; line-height: 1.55; white-space: pre-wrap; word-break: break-word; color: #c7d2fe;
+    overflow-x: auto;
+  }
   .hint { color: var(--muted); font-size: 0.8rem; margin-bottom: 12px; }
   .opt {
     display: flex; gap: 10px; align-items: flex-start;
@@ -559,7 +565,7 @@ function render() {
     <button class="flagbtn${flagged ? ' on' : ''}" id="flagBtn">${flagged ? '★ Marcada' : '☆ Marcar para rever'}</button>
   </div>`;
   if (q.flagged) html += `<div class="warn-badge">⚠️ Confirma esta pergunta — foi assinalada para atenção</div>`;
-  html += `<div class="qtext${q.flagged ? ' has-warn' : ''}">${escapeHtml(q.q)}</div>`;
+  html += `<div class="qtext${q.flagged ? ' has-warn' : ''}">${renderQuestionHtml(q.q)}</div>`;
   if (multi) html += `<div class="hint">Escolha múltipla — selecciona ${q.correct.length} opções.</div>`;
   html += '<div id="optList">';
   q.options.forEach(o => {
@@ -743,7 +749,7 @@ function buildReviewHTML(filter) {
       const aiBadge = q.justification_source === 'ai' ? '<span class="ai-badge">gerado por IA</span>' : '';
       extra += `<div class="justif"><div class="jtitle">Justificação${aiBadge}</div>${escapeHtml(q.justification)}</div>`;
     }
-    return `<div class="review-item">${badge}<span class="rq">Pergunta ${pos + 1}: ${escapeHtml(q.q)}</span>${extra}</div>`;
+    return `<div class="review-item">${badge}<div class="rq">Pergunta ${pos + 1}: ${renderQuestionHtml(q.q)}</div>${extra}</div>`;
   }).join('');
 }
 
@@ -751,6 +757,50 @@ function escapeHtml(str) {
   const d = document.createElement('div');
   d.textContent = str;
   return d.innerHTML;
+}
+
+// Deteta se um trecho de texto parece código (scripts ServiceNow/JS) para
+// o mostrar num bloco monoespaçado, com quebras de linha legíveis.
+function looksLikeCode(text) {
+  const hits = (text.match(/;|\bvar\s|\bfunction\s*\(|GlideRecord|GlideSystem|gs\.\w+\(|current\.\w+|g_form\.\w+|\{|\}/g) || []).length;
+  return hits >= 4;
+}
+
+function formatCodeSnippet(code) {
+  let c = code.trim();
+  c = c.replace(/;\s*/g, ';\n');
+  c = c.replace(/\{\s*/g, ' {\n');
+  c = c.replace(/\}\s*/g, '\n}\n');
+  const lines = c.split('\n').map(l => l.trim()).filter(l => l.length > 0);
+  return lines.join('\n');
+}
+
+// Divide a pergunta em texto normal (prosa) + eventual bloco de código,
+// detetando o ponto de transição (ex.: "...below code?" seguido do script).
+function renderQuestionHtml(qText) {
+  const splitMarkers = [' ? ', '? ', ': ', ':\n'];
+  let splitIdx = -1;
+  for (const marker of splitMarkers) {
+    const idx = qText.indexOf(marker);
+    if (idx !== -1) {
+      const rest = qText.slice(idx + marker.length);
+      if (looksLikeCode(rest)) { splitIdx = idx + marker.length; break; }
+    }
+  }
+  if (splitIdx === -1 && looksLikeCode(qText)) {
+    // Não há um separador claro, mas o texto todo parece código —
+    // tenta encontrar onde a prosa acaba (primeiro "var "/"function"/"GlideRecord").
+    const m = qText.match(/\b(var\s|function\s*\(|GlideRecord|new\s+Glide)/);
+    if (m && m.index > 15) splitIdx = m.index;
+  }
+  if (splitIdx === -1) {
+    return escapeHtml(qText);
+  }
+  const prose = qText.slice(0, splitIdx).trim();
+  const code = qText.slice(splitIdx).trim();
+  let html = prose ? escapeHtml(prose) : '';
+  html += `<pre class="code-block">${escapeHtml(formatCodeSnippet(code))}</pre>`;
+  return html;
 }
 </script>
 </body>
